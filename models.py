@@ -1,12 +1,12 @@
 import torch
 from torch import nn
-from torch.distributions import Categorical
+from torch.distributions import RelaxedOneHotCategorical
 from torch.nn import functional as F
 
 
 # Concatenates the state and one-hot version of an action
 def _join_state_action(state, action, action_size):
-  return torch.cat([state, F.one_hot(action, action_size).to(dtype=torch.float32)], dim=1)
+  return torch.cat([state, action], dim=1) if action.dtype == torch.float32 else torch.cat([state, F.one_hot(action, action_size).to(dtype=torch.float32)], dim=1)
 
 
 # Computes the scaled squared distance between two sets of vectors
@@ -29,7 +29,7 @@ class Actor(nn.Module):
     self.actor = nn.Sequential(nn.Linear(state_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size, action_size))
 
   def forward(self, state):
-    policy = Categorical(logits=self.actor(state))
+    policy = RelaxedOneHotCategorical(temperature=1, logits=self.actor(state))
     return policy
 
 

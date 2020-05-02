@@ -9,7 +9,7 @@ from tqdm import tqdm
 from environments import CartPoleEnv
 from evaluation import evaluate_agent
 from models import ActorCritic, AIRLDiscriminator, GAILDiscriminator, GMMILDiscriminator
-from training import TransitionDataset, adversarial_imitation_update, behavioural_cloning_update, compute_advantages, ppo_update
+from training import TransitionDataset, adversarial_behavioural_cloning_update, adversarial_imitation_update, behavioural_cloning_update, compute_advantages, ppo_update
 from utils import flatten_list_dicts, lineplot
 
 
@@ -30,7 +30,7 @@ parser.add_argument('--max-grad-norm', type=float, default=1, metavar='N', help=
 parser.add_argument('--evaluation-interval', type=int, default=10000, metavar='EI', help='Evaluation interval')
 parser.add_argument('--evaluation-episodes', type=int, default=50, metavar='EE', help='Evaluation episodes')
 parser.add_argument('--save-trajectories', action='store_true', default=False, help='Store trajectories from agent after training')
-parser.add_argument('--imitation', type=str, default='', choices=['AIRL', 'BC', 'GAIL', 'GMMIL'], metavar='I', help='Imitation learning algorithm')
+parser.add_argument('--imitation', type=str, default='', choices=['ABC', 'AIRL', 'BC', 'GAIL', 'GMMIL'], metavar='I', help='Imitation learning algorithm')
 parser.add_argument('--state-only', action='store_true', default=False, help='State-only imitation learning')
 parser.add_argument('--imitation-epochs', type=int, default=5, metavar='IE', help='Imitation learning epochs')
 parser.add_argument('--imitation-batch-size', type=int, default=128, metavar='IB', help='Imitation learning minibatch size')
@@ -50,14 +50,16 @@ if args.imitation:
   # Set up expert trajectories dataset
   expert_trajectories = TransitionDataset(flatten_list_dicts(torch.load('expert_trajectories.pth')))
   # Set up discriminator
-  if args.imitation in ['AIRL', 'GAIL', 'GMMIL']:
-    if args.imitation == 'AIRL':
+  if args.imitation in ['ABC', 'AIRL', 'GAIL', 'GMMIL']:
+    if args.imitation == 'ABC':
+      discriminator = GAILDiscriminator(env.observation_space.shape[0], env.action_space.n, args.hidden_size)
+    elif args.imitation == 'AIRL':
       discriminator = AIRLDiscriminator(env.observation_space.shape[0], env.action_space.n, args.hidden_size, args.discount, state_only=args.state_only)
     elif args.imitation == 'GAIL':
       discriminator = GAILDiscriminator(env.observation_space.shape[0], env.action_space.n, args.hidden_size, state_only=args.state_only)
     elif args.imitation == 'GMMIL':
       discriminator = GMMILDiscriminator(env.observation_space.shape[0], env.action_space.n, state_only=args.state_only)
-    if args.imitation in ['AIRL', 'GAIL']:
+    if args.imitation in ['ABC', 'AIRL', 'GAIL']:
       discriminator_optimiser = optim.RMSprop(discriminator.parameters(), lr=args.learning_rate)
 # Metrics
 metrics = dict(train_steps=[], train_returns=[], test_steps=[], test_returns=[])
@@ -67,11 +69,14 @@ metrics = dict(train_steps=[], train_returns=[], test_steps=[], test_returns=[])
 state, terminal, episode_return, trajectories, policy_trajectory_replay_buffer = env.reset(), False, 0, [], deque(maxlen=args.imitation_replay_size)
 pbar = tqdm(range(1, args.steps + 1), unit_scale=1, smoothing=0)
 for step in pbar:
-  if args.imitation == 'BC':
+  if args.imitation in ['ABC', 'BC']:
     # Perform behavioural cloning updates offline
     if step == 1:
       for _ in tqdm(range(args.imitation_epochs), leave=False):
-        behavioural_cloning_update(agent, expert_trajectories, agent_optimiser, args.imitation_batch_size)
+        if args.imitation == 'ABC':
+          adversarial_behavioural_cloning_update(agent, discriminator, expert_trajectories, agent_optimiser, discriminator_optimiser, args.imitation_batch_size, args.r1_reg_coeff)
+        elif args.imitation == 'BC':
+          behavioural_cloning_update(agent, expert_trajectories, agent_optimiser, args.imitation_batch_size)
   else:
     # Collect set of trajectories by running policy π in the environment
     policy, value = agent(state)
@@ -124,7 +129,7 @@ for step in pbar:
     metrics['test_steps'].append(step)
     metrics['test_returns'].append(evaluate_agent(agent, args.evaluation_episodes, seed=args.seed))
     lineplot(metrics['test_steps'], metrics['test_returns'], 'test_returns')
-    if args.imitation != 'BC': lineplot(metrics['train_steps'], metrics['train_returns'], 'train_returns')
+    if args.imitation in ['AIRL', 'GAIL', 'GMMIL']: lineplot(metrics['train_steps'], metrics['train_returns'], 'train_returns')
 
 
 if args.save_trajectories:
@@ -134,6 +139,6 @@ if args.save_trajectories:
 
 # Save agent and metrics
 torch.save(agent.state_dict(), os.path.join('results', 'agent.pth'))
-if args.imitation in ['AIRL', 'GAIL']: torch.save(discriminator.state_dict(), os.path.join('results', 'discriminator.pth'))
+if args.imitation in ['ABC', 'AIRL', 'GAIL']: torch.save(discriminator.state_dict(), os.path.join('results', 'discriminator.pth'))
 torch.save(metrics, os.path.join('results', 'metrics.pth'))
 env.close()

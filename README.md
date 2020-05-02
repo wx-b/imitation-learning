@@ -4,7 +4,7 @@ IL
 
 Imitation learning algorithms (with PPO [[1]](#references)):
 
-- ~~ABC [[2]](#references)~~
+- ABC [[2]](#references)
 - AIRL [[3]](#references)
 - BC [[4]](#references)
 - GAIL [[5]](#references)
@@ -24,6 +24,12 @@ Results
 Train | Test
 :----:|:---:
 ![ppo_train_returns](figures/ppo_train_returns.png) | ![ppo_test_returns](figures/ppo_test_returns.png)
+
+**ABC**
+
+Train | Test
+:----:|:---:
+![abc_test_returns](figures/abc_test_returns.png) | ![abc_test_returns](figures/abc_test_returns.png)
 
 **AIRL(s, a)**
 

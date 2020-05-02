@@ -70,6 +70,37 @@ def behavioural_cloning_update(agent, expert_trajectories, agent_optimiser, batc
     agent_optimiser.step()
 
 
+# Performs an adversarial behavioural cloning update
+def adversarial_behavioural_cloning_update(agent, discriminator, expert_trajectories, agent_optimiser, discriminator_optimiser, batch_size, r1_reg_coeff=1):
+  expert_dataloader = DataLoader(expert_trajectories, batch_size=batch_size, shuffle=True, drop_last=True)
+
+  for expert_transition in expert_dataloader:
+    expert_state, expert_action = expert_transition['states'], expert_transition['actions']
+
+    agent_optimiser.zero_grad()
+    policy_action = agent(expert_state)[0].rsample()
+    D_policy = discriminator(expert_state, policy_action)
+    behavioural_cloning_loss = F.binary_cross_entropy(D_policy, torch.ones_like(D_policy))  # Loss on "fake" (policy) data
+    behavioural_cloning_loss.backward()
+    agent_optimiser.step()
+
+    with torch.no_grad():
+      policy_action = agent(expert_state)[0].sample()
+    D_expert = discriminator(expert_state, expert_action)
+    D_policy = discriminator(expert_state, policy_action)
+
+    # Binary logistic regression
+    discriminator_optimiser.zero_grad()
+    expert_loss = F.binary_cross_entropy(D_expert, torch.ones_like(D_expert))  # Loss on "real" (expert) data
+    autograd.backward(expert_loss, create_graph=True)
+    r1_reg = 0
+    for param in discriminator.parameters():
+      r1_reg += param.grad.norm().mean()  # R1 gradient penalty
+    policy_loss = F.binary_cross_entropy(D_policy, torch.zeros_like(D_policy))  # Loss on "fake" (policy) data
+    (policy_loss + r1_reg_coeff * r1_reg).backward()
+    discriminator_optimiser.step()
+
+
 # Performs an adversarial imitation learning update
 def adversarial_imitation_update(algorithm, agent, discriminator, expert_trajectories, policy_trajectories, discriminator_optimiser, batch_size, r1_reg_coeff=1):
   expert_dataloader = DataLoader(expert_trajectories, batch_size=batch_size, shuffle=True, drop_last=True)
