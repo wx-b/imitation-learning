@@ -96,7 +96,7 @@ class GAILDiscriminator(nn.Module):
   def predict_reward(self, state, action):
     D = self.forward(state, action)
     h = torch.log(D) - torch.log1p(-D)
-    return torch.exp(h * -h) if self.forward_kl else h
+    return torch.exp(h) * -h if self.forward_kl else h
 
 
 class GMMILDiscriminator(nn.Module):
